@@ -1,5 +1,6 @@
 use wgpu::{Backends, Device, DeviceType, Queue, Surface, SurfaceConfiguration};
 use winit::window::Window;
+mod instance;
 
 #[repr(u64)]
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]

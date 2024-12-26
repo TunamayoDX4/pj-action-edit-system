@@ -1,3 +1,4 @@
+use mlua::prelude::*;
 use ouroboros::self_referencing;
 use winit::{
   application::ApplicationHandler,
@@ -97,6 +98,12 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
+  let lua = Lua::new();
+  let map_table = lua.create_table().expect("Lua table initialize failure");
+  map_table.set("takashi", 32).expect("Lua table set failure.");
+  map_table.set("yasushi", 14).expect("Lua table set failure.");
+  lua.globals().set("map_table", map_table).expect("Lua global parameter set failure");
+  lua.load("for k,v in pairs(map_table) do print(k,v) end").exec().expect("Lua executing failure");
   let main_event_loop = EventLoop::new().expect("Main event initialize failure");
   main_event_loop.set_control_flow(ControlFlow::Poll);
   let mut app = App::new();
