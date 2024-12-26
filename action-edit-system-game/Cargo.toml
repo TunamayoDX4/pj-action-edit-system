@@ -22,6 +22,13 @@ version = "0.30"
 version = "1"
 features = ["derive"]
 
+[dependencies.mlua]
+version = "0.10"
+features = ["luajit", "vendored", "macros", "userdata-wrappers", "async", "send", "error-send", "serialize"]
+
+[dependencies.wasmtime]
+version = "28"
+
 [dependencies]
 pollster = "0.4"
 toml = "0.8"
