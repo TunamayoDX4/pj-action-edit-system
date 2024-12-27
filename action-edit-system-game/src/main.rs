@@ -1,114 +1,137 @@
-use mlua::prelude::*;
-use ouroboros::self_referencing;
-use winit::{
-  application::ApplicationHandler,
-  dpi::{PhysicalPosition, PhysicalSize},
-  event::WindowEvent,
-  event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-  window::{Window, WindowId},
-};
+type StdError = Box<dyn std::error::Error>;
 
-mod graphics;
+mod gfx;
+mod renderer;
 
-#[self_referencing]
-struct WindowHolder {
-  window: Window,
-  #[borrows(window)]
-  #[not_covariant]
-  wgpu_state: graphics::WgpuState<'this>,
+/// GUI利用機能の状態
+struct GuiState {
+  window: std::sync::Arc<winit::window::Window>,
+  gfx: std::sync::Arc<parking_lot::Mutex<gfx::GfxState>>,
+  egui: renderer::EguiRenderer,
 }
-impl WindowHolder {
-  pub fn initialize(window: Window) -> Self {
-    WindowHolderBuilder {
-      window,
-      wgpu_state_builder: |w| graphics::WgpuState::new(w, graphics::WgpuAdapterSelMode::HighPower),
-    }
-    .build()
+impl GuiState {
+  pub async fn new(window: std::sync::Arc<winit::window::Window>) -> Result<Self, StdError> {
+    let gfx = std::sync::Arc::new(parking_lot::Mutex::new(
+      gfx::GfxState::new(window.clone()).await?,
+    ));
+    let egui = renderer::EguiRenderer::new(&gfx.lock(), &window, None, 1, true);
+    Ok(Self {
+      window: window.clone(),
+      gfx,
+      egui,
+    })
   }
 }
 
 struct App {
-  window_holder: Option<WindowHolder>,
+  main: Option<GuiState>,
 }
 impl App {
   pub fn new() -> Self {
-    Self {
-      window_holder: None,
-    }
+    Self { main: None }
   }
 }
-impl ApplicationHandler for App {
-  fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+impl winit::application::ApplicationHandler for App {
+  fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
     let window = event_loop
       .create_window(
-        Window::default_attributes()
-          .with_inner_size(PhysicalSize::new(1280, 720))
-          .with_active(true),
+        winit::window::WindowAttributes::default()
+          .with_active(true)
+          .with_resizable(false)
+          .with_inner_size(winit::dpi::PhysicalSize::new(1280, 720)),
       )
-      .expect("Create Main window failure");
-    let wsize = window.outer_size();
-    let primary_mon = event_loop
-      .primary_monitor()
-      .expect("Getting primary monitor handle failure");
-    let pmon_size = primary_mon.size();
-    let pmon_pos = primary_mon.position();
-    window.set_outer_position(PhysicalPosition::new(
-      pmon_pos.x + (pmon_size.width / 2 - wsize.width / 2) as i32,
-      pmon_pos.y + (pmon_size.height / 2 - wsize.height / 2) as i32,
-    ));
-    self.window_holder = Some(WindowHolder::initialize(window))
+      .expect("Window initialize failure");
+    let window = std::sync::Arc::new(window);
+
+    // ウィンドウの中央寄せ
+    if let Some(mon) = window.primary_monitor() {
+      // WEB/WayLandではNoneが返るのでその際は何もしない。
+      let mon_pos = mon.position();
+      let mon_size = mon.size();
+      let wdw_size = window.outer_size();
+      window.set_outer_position(winit::dpi::PhysicalPosition::new(
+        mon_pos.x + (mon_size.width / 2 - wdw_size.width / 2) as i32,
+        mon_pos.y + (mon_size.height / 2 - wdw_size.height / 2) as i32,
+      ));
+    }
+
+    let gui = pollster::block_on(GuiState::new(window)).expect("GUI state initialize failure");
+    self.main = Some(gui);
   }
 
   fn window_event(
     &mut self,
-    event_loop: &ActiveEventLoop,
-    window_id: WindowId,
-    event: WindowEvent,
+    event_loop: &winit::event_loop::ActiveEventLoop,
+    window_id: winit::window::WindowId,
+    event: winit::event::WindowEvent,
   ) {
-    match event {
-      WindowEvent::CloseRequested => {
-        event_loop.exit();
-      }
-      WindowEvent::Resized(new_size) => {
-        if let Some(main_window) = self.window_holder.as_mut() {
-          if main_window.borrow_window().id() == window_id {
-            main_window.with_wgpu_state_mut(|ws| ws.re_size(new_size))
-          }
-        }
-      }
-      WindowEvent::RedrawRequested => {
-        if let Some(main_window) = self.window_holder.as_mut() {
-          if main_window.borrow_window().id() == window_id {
-            main_window.borrow_window().request_redraw();
-            main_window.with_wgpu_state_mut(|ws| match ws.rendering() {
-              Ok(_) => {}
-              Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => ws.re_configure(),
-              Err(wgpu::SurfaceError::Timeout) => eprintln!("Surface timeout..."),
+    if self
+      .main
+      .as_ref()
+      .map_or(false, |w| w.window.id() == window_id)
+    {
+      let mw = self.main.as_mut().unwrap();
+      let _ = mw.egui.event_input(&mw.window, &event);
+      match event {
+        winit::event::WindowEvent::CloseRequested => event_loop.exit(),
+        winit::event::WindowEvent::RedrawRequested => {
+          let mut gfx = mw.gfx.lock();
+          if !mw.window.is_minimized().unwrap_or(false) {
+            match gfx.draw() {
+              Ok(o) => o
+                .rendering(&mut renderer::TestRenderer([0.1, 0.2, 0.3, 1.]), ())
+                .unwrap()
+                .rendering(
+                  &mut mw.egui,
+                  (
+                    mw.window.clone(),
+                    egui_wgpu::ScreenDescriptor {
+                      size_in_pixels: [mw.window.inner_size().width, mw.window.inner_size().height],
+                      pixels_per_point: 1.,
+                    },
+                    |cx| {
+                      egui::Window::new(egui::RichText::new("winit window"))
+                        .resizable(true)
+                        .vscroll(true)
+                        .default_open(false)
+                        .show(cx, |ui| {
+                          ui.label("UNKO");
+                        });
+                    },
+                  ),
+                )
+                .unwrap()
+                .flush_encoder()
+                .finish(),
+              Err(wgpu::SurfaceError::Lost) => gfx.surface_reconfig(),
+              Err(wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Outdated) => {}
               Err(wgpu::SurfaceError::OutOfMemory) => {
-                eprintln!("Graphics Out of Memory occured!");
+                log::error!("Out of memory error occured.");
+                eprintln!("NOT RECOVERABLE.");
                 event_loop.exit();
               }
-            });
+            }
           }
+          mw.window.request_redraw();
         }
+        winit::event::WindowEvent::Resized(new_size) => mw.gfx.lock().surface_resize(new_size),
+        _ => {}
       }
-      _ => {}
     }
   }
 }
 
-fn main() {
-  let lua = Lua::new();
-  let map_table = lua.create_table().expect("Lua table initialize failure");
-  map_table.set("takashi", 32).expect("Lua table set failure.");
-  map_table.set("yasushi", 14).expect("Lua table set failure.");
-  lua.globals().set("map_table", map_table).expect("Lua global parameter set failure");
-  lua.load("for k,v in pairs(map_table) do print(k,v) end").exec().expect("Lua executing failure");
-  let main_event_loop = EventLoop::new().expect("Main event initialize failure");
-  main_event_loop.set_control_flow(ControlFlow::Poll);
-  let mut app = App::new();
-  match main_event_loop.run_app(&mut app) {
-    Ok(_) => {}
-    Err(e) => eprintln!("{e}"),
-  }
+fn main() -> Result<(), StdError> {
+  env_logger::Builder::from_default_env()
+    .target(env_logger::Target::Stdout)
+    .filter_level(if cfg!(debug_assertions) {
+      log::LevelFilter::Info
+    } else {
+      log::LevelFilter::Info
+    })
+    .init();
+  let event_loop = winit::event_loop::EventLoop::new()?;
+  event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+  event_loop.run_app(&mut App::new())?;
+  Ok(())
 }

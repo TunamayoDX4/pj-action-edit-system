@@ -12,6 +12,9 @@ strip = true
 opt-level = 1
 lto = false
 
+[dependencies.nalgebra]
+version = "0.33"
+
 [dependencies.wgpu]
 version = "23"
 
@@ -29,10 +32,20 @@ features = ["luajit", "vendored", "macros", "userdata-wrappers", "async", "send"
 [dependencies.wasmtime]
 version = "28"
 
+[dependencies.image]
+version = "0.25"
+features = ["png", "jpeg", "webp"]
+
 [dependencies]
+log = "0.4"
+env_logger = "0.11"
+hashbrown = "0.15"
+parking_lot = "0.12"
 pollster = "0.4"
 toml = "0.8"
 serde_json = "1"
 rmp-serde = "1"
 csv = "1"
-ouroboros = "0.18"
+egui = "0.30"
+egui-winit = "0.30"
+egui-wgpu = { version = "0.30", features = ["winit"] }
