@@ -97,10 +97,11 @@ impl GfxState {
     Ok(RenderChain {
       surface_texture,
       surface_view,
-      encoder: self
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None }),
-      encoders: Vec::new(),
+      encoders: Vec::from([
+        self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+          label: None,
+        })
+      ]),
       device: &self.device,
       queue: &self.queue,
     })
@@ -122,7 +123,6 @@ pub trait Renderer<V> {
 pub struct RenderChain<'a> {
   surface_texture: wgpu::SurfaceTexture,
   surface_view: wgpu::TextureView,
-  encoder: wgpu::CommandEncoder,
   encoders: Vec<wgpu::CommandEncoder>,
   device: &'a wgpu::Device,
   queue: &'a wgpu::Queue,
@@ -138,20 +138,18 @@ impl<'a> RenderChain<'a> {
       &self.surface_view,
       self.device,
       self.queue,
-      &mut self.encoder,
+      self.encoders.last_mut().unwrap(),
       param,
     )?;
     Ok(self)
   }
   pub fn flush_encoder(mut self) -> Self {
-    self.encoders.push(self.encoder);
-    let encoder = self
+    self.encoders.push(self
       .device
-      .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+      .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None }));
     Self {
       surface_texture: self.surface_texture,
       surface_view: self.surface_view,
-      encoder,
       encoders: self.encoders,
       device: self.device,
       queue: self.queue,

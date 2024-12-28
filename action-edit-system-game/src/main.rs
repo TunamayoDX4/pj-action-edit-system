@@ -115,7 +115,6 @@ impl winit::application::ApplicationHandler for App {
                   ),
                 )
                 .unwrap()
-                .flush_encoder()
                 .finish(),
               Err(wgpu::SurfaceError::Lost) => gfx.surface_reconfig(),
               Err(wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Outdated) => {}

@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{collections::VecDeque, io::Read};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct TextureHandle(u32);
@@ -8,6 +8,7 @@ struct TextureStorage {
   size: Vec<[u32; 2]>,
   size_f: Vec<[f32; 2]>,
   bind_group: Vec<Option<GRTexture>>,
+  remove_queue: VecDeque<usize>,
 }
 impl TextureStorage {
   pub fn load_diffuse(
@@ -15,7 +16,19 @@ impl TextureStorage {
     gfx: &crate::gfx::GfxState,
     path: impl AsRef<std::path::Path>,
     diffuse_bindgroup_layout: &wgpu::BindGroupLayout,
-  ) -> Result<(), crate::StdError> {
+  ) -> Result<Option<TextureHandle>, crate::StdError> {
+    let name = match path.as_ref().file_name().map(|s| s.to_str()).flatten().map(|n| n.split('.').next()).flatten().map(|s| (s, self.map.contains_key(s))) {
+      Some((fname, true)) => {
+        log::warn!("file name {fname} duplicated");
+        return Ok(None);
+      }
+      Some((fname, false)) => fname,
+      None => {
+        log::error!("bad file name");
+        return Ok(None);
+      }
+    }
+    .to_owned();
     let image = {
       let mut buffer = Vec::new();
       let mut rdr = std::io::BufReader::new(std::fs::File::open(path)?);
@@ -79,7 +92,30 @@ impl TextureStorage {
       ],
     });
 
-    Ok(())
+    let handle = TextureHandle(match self.remove_queue.pop_front() {
+      Some(idx) => {
+        self.size[idx] = [dim.0, dim.1];
+        self.size_f[idx] = [dim.0 as f32, dim.1 as f32];
+        self.bind_group[idx] = Some(GRTexture {
+          bind_group: diffuse_bind_group,
+        });
+        idx
+      }
+      None => {
+        let l = self.bind_group.len();
+        self.size.push([dim.0, dim.1]);
+        self.size_f.push([dim.0 as f32, dim.1 as f32]);
+        self.bind_group.push(Some(GRTexture {
+          bind_group: diffuse_bind_group,
+        }));
+        l
+      }
+    } as u32);
+    if self.map.insert(name, handle).is_some() {
+      unreachable!()
+    }
+
+    Ok(Some(handle))
   }
 }
 
@@ -93,7 +129,46 @@ struct GameRenderer {
   diffuse_bindgroup_layout: wgpu::BindGroupLayout,
 }
 impl GameRenderer {
-  pub fn new(gfx: std::sync::Arc<parking_lot::Mutex<crate::gfx::GfxState>>) {}
+  pub fn new(gfx: std::sync::Arc<parking_lot::Mutex<crate::gfx::GfxState>>) -> Self {
+    let diffuse_bindgroup_layout = {
+      let gfx = gfx.lock();
+      gfx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("diffuse bindgroup layout"),
+        entries: &[
+          wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+              sample_type: wgpu::TextureSampleType::Float { filterable: true },
+              view_dimension: wgpu::TextureViewDimension::D2,
+              multisampled: false,
+            },
+            count: None,
+          },
+          wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+          },
+        ],
+      })
+    };
+    Self {
+      gfx,
+      texture_storage: TextureStorage {
+        map: hashbrown::HashMap::new(),
+        size: Vec::new(),
+        size_f: Vec::new(),
+        bind_group: Vec::new(),
+        remove_queue: VecDeque::new(),
+      },
+      diffuse_bindgroup_layout,
+    }
+  }
+  pub fn load_diffuse(&mut self, path: impl AsRef<std::path::Path>) -> Result<Option<TextureHandle>, crate::StdError> {
+    self.texture_storage.load_diffuse(&self.gfx.lock(), path, &self.diffuse_bindgroup_layout)
+  }
 }
 impl crate::gfx::Renderer<()> for GameRenderer {
   fn rendering<'a: 'b, 'b>(
