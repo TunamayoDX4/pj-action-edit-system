@@ -7,7 +7,9 @@ pub struct GfxState {
 }
 impl GfxState {
   /// グラフィクス・ステートの初期化
-  pub async fn new(window: std::sync::Arc<winit::window::Window>) -> Result<Self, crate::StdError> {
+  pub async fn new(
+    window: std::sync::Arc<winit::window::Window>,
+  ) -> Result<Self, crate::StdError> {
     let size = window.inner_size();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
       backends: wgpu::Backends::all(),
@@ -97,11 +99,9 @@ impl GfxState {
     Ok(RenderChain {
       surface_texture,
       surface_view,
-      encoders: Vec::from([
-        self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-          label: None,
-        })
-      ]),
+      encoders: Vec::from([self.device.create_command_encoder(
+        &wgpu::CommandEncoderDescriptor { label: None },
+      )]),
       device: &self.device,
       queue: &self.queue,
     })
@@ -132,7 +132,10 @@ impl<'a> RenderChain<'a> {
     mut self,
     renderer: &mut impl Renderer<V>,
     param: V,
-  ) -> Result<Self, crate::StdError> where 'a: 'c {
+  ) -> Result<Self, crate::StdError>
+  where
+    'a: 'c,
+  {
     renderer.rendering(
       &self.surface_texture,
       &self.surface_view,
@@ -144,9 +147,9 @@ impl<'a> RenderChain<'a> {
     Ok(self)
   }
   pub fn flush_encoder(mut self) -> Self {
-    self.encoders.push(self
-      .device
-      .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None }));
+    self.encoders.push(self.device.create_command_encoder(
+      &wgpu::CommandEncoderDescriptor { label: None },
+    ));
     Self {
       surface_texture: self.surface_texture,
       surface_view: self.surface_view,
@@ -156,9 +159,7 @@ impl<'a> RenderChain<'a> {
     }
   }
   pub fn finish(self) {
-    self
-      .queue
-      .submit(self.encoders.into_iter().map(|e| e.finish()));
+    self.queue.submit(self.encoders.into_iter().map(|e| e.finish()));
     self.surface_texture.present();
   }
 }

@@ -1,4 +1,4 @@
-pub mod game;
+pub mod render2d;
 
 pub struct TestRenderer(pub [f32; 4]);
 impl crate::gfx::Renderer<()> for TestRenderer {
@@ -105,18 +105,20 @@ where
     self
       .state
       .handle_platform_output(&window, full_output.platform_output);
-    let tris = self
-      .state
-      .egui_ctx()
-      .tessellate(full_output.shapes, self.state.egui_ctx().pixels_per_point());
+    let tris = self.state.egui_ctx().tessellate(
+      full_output.shapes,
+      self.state.egui_ctx().pixels_per_point(),
+    );
     for (id, image_delta) in &full_output.textures_delta.set {
-      self
-        .renderer
-        .update_texture(device, queue, *id, image_delta);
+      self.renderer.update_texture(device, queue, *id, image_delta);
     }
-    self
-      .renderer
-      .update_buffers(device, queue, encoder, &tris, &screen_descriptor);
+    self.renderer.update_buffers(
+      device,
+      queue,
+      encoder,
+      &tris,
+      &screen_descriptor,
+    );
     let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
       label: Some("egui render pass"),
       color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -131,9 +133,11 @@ where
       timestamp_writes: None,
       occlusion_query_set: None,
     });
-    self
-      .renderer
-      .render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
+    self.renderer.render(
+      &mut rpass.forget_lifetime(),
+      &tris,
+      &screen_descriptor,
+    );
     for id in &full_output.textures_delta.free {
       self.renderer.free_texture(id);
     }

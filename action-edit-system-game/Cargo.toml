@@ -36,6 +36,10 @@ version = "28"
 version = "0.25"
 features = ["png", "jpeg", "webp"]
 
+[dependencies.bytemuck]
+version = "1"
+features = ["derive"]
+
 [dependencies]
 log = "0.4"
 env_logger = "0.11"

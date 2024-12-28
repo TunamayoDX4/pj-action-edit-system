@@ -10,11 +10,14 @@ struct GuiState {
   egui: renderer::EguiRenderer,
 }
 impl GuiState {
-  pub async fn new(window: std::sync::Arc<winit::window::Window>) -> Result<Self, StdError> {
+  pub async fn new(
+    window: std::sync::Arc<winit::window::Window>,
+  ) -> Result<Self, StdError> {
     let gfx = std::sync::Arc::new(parking_lot::Mutex::new(
       gfx::GfxState::new(window.clone()).await?,
     ));
-    let egui = renderer::EguiRenderer::new(&gfx.lock(), &window, None, 1, true);
+    let egui =
+      renderer::EguiRenderer::new(&gfx.lock(), &window, None, 1, true);
     Ok(Self {
       window: window.clone(),
       gfx,
@@ -26,12 +29,37 @@ impl GuiState {
 struct App {
   main: Option<GuiState>,
   script_line: String,
-  error_output: Option<String>, 
-  lua: mlua::Lua, 
+  error_output: Option<String>,
+  lua: mlua::Lua,
+  do_exit: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 impl App {
   pub fn new() -> Self {
-    Self { main: None, script_line: String::new(), error_output: None, lua: mlua::Lua::new() }
+    let do_exit =
+      std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let do_exit_ = do_exit.clone();
+    Self {
+      main: None,
+      script_line: String::new(),
+      error_output: None,
+      lua: {
+        let lua = mlua::Lua::new();
+        lua
+          .globals()
+          .set(
+            "exit",
+            lua
+              .create_function(move |_lua, ()| {
+                do_exit_.store(true, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
+              })
+              .unwrap(),
+          )
+          .unwrap();
+        lua
+      },
+      do_exit: do_exit,
+    }
   }
 }
 impl winit::application::ApplicationHandler for App {
@@ -58,7 +86,8 @@ impl winit::application::ApplicationHandler for App {
       ));
     }
 
-    let gui = pollster::block_on(GuiState::new(window)).expect("GUI state initialize failure");
+    let gui = pollster::block_on(GuiState::new(window))
+      .expect("GUI state initialize failure");
     self.main = Some(gui);
   }
 
@@ -68,11 +97,7 @@ impl winit::application::ApplicationHandler for App {
     window_id: winit::window::WindowId,
     event: winit::event::WindowEvent,
   ) {
-    if self
-      .main
-      .as_ref()
-      .map_or(false, |w| w.window.id() == window_id)
-    {
+    if self.main.as_ref().map_or(false, |w| w.window.id() == window_id) {
       let mw = self.main.as_mut().unwrap();
       let _ = mw.egui.event_input(&mw.window, &event);
       match event {
@@ -82,42 +107,63 @@ impl winit::application::ApplicationHandler for App {
           if !mw.window.is_minimized().unwrap_or(false) {
             match gfx.draw() {
               Ok(o) => o
-                .rendering(&mut renderer::TestRenderer([0.1, 0.2, 0.3, 1.]), ())
+                .rendering(
+                  &mut renderer::TestRenderer([0.1, 0.2, 0.3, 1.]),
+                  (),
+                )
                 .unwrap()
                 .rendering(
                   &mut mw.egui,
                   (
                     mw.window.clone(),
                     egui_wgpu::ScreenDescriptor {
-                      size_in_pixels: [mw.window.inner_size().width, mw.window.inner_size().height],
+                      size_in_pixels: [
+                        mw.window.inner_size().width,
+                        mw.window.inner_size().height,
+                      ],
                       pixels_per_point: 1.,
                     },
                     |cx| {
-                      egui::Window::new(egui::RichText::new("winit window"))
-                        .resizable(true)
-                        .vscroll(true)
-                        .default_open(false)
-                        .show(cx, |ui| {
-                          ui.vertical(|ui| {
-                            ui.text_edit_multiline(&mut self.script_line);
-                            if ui.button("Execute").clicked() {
-                              match self.lua.load(self.script_line.as_str()).exec() {
-                                Ok(_) => self.error_output = None, 
-                                Err(e) => self.error_output = Some(format!("{e}")), 
+                      egui::Window::new(egui::RichText::new(
+                        "winit window",
+                      ))
+                      .resizable(true)
+                      .vscroll(true)
+                      .default_open(false)
+                      .show(cx, |ui| {
+                        ui.vertical(|ui| {
+                          ui.text_edit_multiline(&mut self.script_line);
+                          if ui.button("Execute").clicked() {
+                            match self
+                              .lua
+                              .load(self.script_line.as_str())
+                              .exec()
+                            {
+                              Ok(_) => self.error_output = None,
+                              Err(e) => {
+                                self.error_output = Some(format!("{e}"))
                               }
                             }
-                            if let Some(error_output) = self.error_output.as_ref() {
-                              ui.label(egui::RichText::new(error_output).color(egui::Color32::from_rgb(255, 0, 0)));
-                            }
-                          });
+                          }
+                          if let Some(error_output) =
+                            self.error_output.as_ref()
+                          {
+                            ui.label(
+                              egui::RichText::new(error_output)
+                                .color(egui::Color32::from_rgb(255, 0, 0)),
+                            );
+                          }
                         });
+                      });
                     },
                   ),
                 )
                 .unwrap()
                 .finish(),
               Err(wgpu::SurfaceError::Lost) => gfx.surface_reconfig(),
-              Err(wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Outdated) => {}
+              Err(
+                wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Outdated,
+              ) => {}
               Err(wgpu::SurfaceError::OutOfMemory) => {
                 log::error!("Out of memory error occured.");
                 eprintln!("NOT RECOVERABLE.");
@@ -127,9 +173,14 @@ impl winit::application::ApplicationHandler for App {
           }
           mw.window.request_redraw();
         }
-        winit::event::WindowEvent::Resized(new_size) => mw.gfx.lock().surface_resize(new_size),
+        winit::event::WindowEvent::Resized(new_size) => {
+          mw.gfx.lock().surface_resize(new_size)
+        }
         _ => {}
       }
+    }
+    if self.do_exit.load(std::sync::atomic::Ordering::Relaxed) {
+      event_loop.exit();
     }
   }
 }
