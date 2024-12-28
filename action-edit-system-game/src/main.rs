@@ -25,10 +25,13 @@ impl GuiState {
 
 struct App {
   main: Option<GuiState>,
+  script_line: String,
+  error_output: Option<String>, 
+  lua: mlua::Lua, 
 }
 impl App {
   pub fn new() -> Self {
-    Self { main: None }
+    Self { main: None, script_line: String::new(), error_output: None, lua: mlua::Lua::new() }
   }
 }
 impl winit::application::ApplicationHandler for App {
@@ -95,7 +98,18 @@ impl winit::application::ApplicationHandler for App {
                         .vscroll(true)
                         .default_open(false)
                         .show(cx, |ui| {
-                          ui.label("UNKO");
+                          ui.vertical(|ui| {
+                            ui.text_edit_multiline(&mut self.script_line);
+                            if ui.button("Execute").clicked() {
+                              match self.lua.load(self.script_line.as_str()).exec() {
+                                Ok(_) => self.error_output = None, 
+                                Err(e) => self.error_output = Some(format!("{e}")), 
+                              }
+                            }
+                            if let Some(error_output) = self.error_output.as_ref() {
+                              ui.label(egui::RichText::new(error_output).color(egui::Color32::from_rgb(255, 0, 0)));
+                            }
+                          });
                         });
                     },
                   ),

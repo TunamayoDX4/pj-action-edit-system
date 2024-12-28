@@ -128,11 +128,11 @@ pub struct RenderChain<'a> {
   queue: &'a wgpu::Queue,
 }
 impl<'a> RenderChain<'a> {
-  pub fn rendering<V: 'static>(
+  pub fn rendering<'c, V: 'c>(
     mut self,
     renderer: &mut impl Renderer<V>,
     param: V,
-  ) -> Result<Self, crate::StdError> {
+  ) -> Result<Self, crate::StdError> where 'a: 'c {
     renderer.rendering(
       &self.surface_texture,
       &self.surface_view,

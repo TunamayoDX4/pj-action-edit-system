@@ -82,7 +82,7 @@ impl<'c, F>
     F,
   )> for EguiRenderer
 where
-  F: FnOnce(&egui::Context),
+  F: 'c + FnOnce(&egui::Context),
 {
   fn rendering<'a: 'b, 'b>(
     &'a mut self,
