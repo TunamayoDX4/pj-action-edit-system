@@ -1,3 +1,5 @@
+use core::f64;
+
 type StdError = Box<dyn std::error::Error>;
 
 mod gfx;
@@ -8,6 +10,7 @@ struct GuiState {
   window: std::sync::Arc<winit::window::Window>,
   gfx: std::sync::Arc<parking_lot::Mutex<gfx::GfxState>>,
   egui: renderer::EguiRenderer,
+  square: renderer::render2d::square::SquareRender,
 }
 impl GuiState {
   pub async fn new(
@@ -16,12 +19,22 @@ impl GuiState {
     let gfx = std::sync::Arc::new(parking_lot::Mutex::new(
       gfx::GfxState::new(window.clone()).await?,
     ));
-    let egui =
-      renderer::EguiRenderer::new(&gfx.lock(), &window, None, 1, true);
+    let (egui, square) = {
+      let gfx = gfx.lock();
+      let egui = renderer::EguiRenderer::new(&gfx, &window, None, 1, true);
+      let square = renderer::render2d::square::SquareRender::new(
+        &gfx.device,
+        &gfx.queue,
+        &gfx.config,
+        "./ferris.png",
+      )?;
+      (egui, square)
+    };
     Ok(Self {
       window: window.clone(),
       gfx,
       egui,
+      square,
     })
   }
 }
@@ -103,6 +116,15 @@ impl winit::application::ApplicationHandler for App {
       match event {
         winit::event::WindowEvent::CloseRequested => event_loop.exit(),
         winit::event::WindowEvent::RedrawRequested => {
+          mw.square.instance_register(
+            [renderer::render2d::square::Instance {
+              position: [0., 0.].into(),
+              size: [128., 64.].into(),
+              rot: 90. * (std::f32::consts::PI / 180.),
+              uv: [[0., 0.], [1., 1.]],
+            }]
+            .iter(),
+          );
           let mut gfx = mw.gfx.lock();
           if !mw.window.is_minimized().unwrap_or(false) {
             match gfx.draw() {
@@ -111,6 +133,8 @@ impl winit::application::ApplicationHandler for App {
                   &mut renderer::TestRenderer([0.1, 0.2, 0.3, 1.]),
                   (),
                 )
+                .unwrap()
+                .rendering(&mut mw.square, ())
                 .unwrap()
                 .rendering(
                   &mut mw.egui,
