@@ -198,9 +198,9 @@ impl SquareRender {
     })
   }
 
-  pub fn instance_register(
+  pub fn instance_register<'a>(
     &mut self,
-    instances: impl Iterator<Item = &Instance>,
+    instances: impl Iterator<Item = &'a Instance>,
   ) {
     instances.map(|i| i.to_raw()).for_each(|i| self.instances.0.push(i));
     self.instances.1 = true;
