@@ -1,6 +1,7 @@
 use std::io::Read;
 
 use image::GenericImageView;
+use wgpu::util::DeviceExt;
 
 use super::Vertex2D;
 
@@ -63,7 +64,8 @@ pub struct SquareRender {
   vertex_buffer: wgpu::Buffer,
   index_buffer: wgpu::Buffer,
   instance_buffer: wgpu::Buffer,
-  instances: Vec<Instance>,
+  /// インスタンスの格納ベクトルと更新フラグ
+  instances: (Vec<RawInstance>, bool),
 }
 impl SquareRender {
   pub fn new(
@@ -162,7 +164,45 @@ impl SquareRender {
           },
         ],
       });
+    let vertex_buffer =
+      device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Vertex buffer"),
+        contents: bytemuck::cast_slice(&VERTEX),
+        usage: wgpu::BufferUsages::VERTEX,
+      });
+    let index_buffer =
+      device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Index buffer"),
+        contents: bytemuck::cast_slice(&INDEX),
+        usage: wgpu::BufferUsages::INDEX,
+      });
+    let instances = (Vec::new(), false);
+    let instance_buffer =
+      device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Instance buffer"),
+        contents: bytemuck::cast_slice(&instances.0),
+        usage: wgpu::BufferUsages::VERTEX,
+      });
+    Ok(Self {
+      texture,
+      diffuse_bindgroup,
+      diffuse_bindgroup_layout,
+      texture_size: nalgebra::Vector2::new(
+        dimensions.0 as f32,
+        dimensions.1 as f32,
+      ),
+      vertex_buffer,
+      index_buffer,
+      instance_buffer,
+      instances,
+    })
+  }
 
-    todo!()
+  pub fn instance_register(
+    &mut self,
+    instances: impl Iterator<Item = &Instance>,
+  ) {
+    instances.map(|i| i.to_raw()).for_each(|i| self.instances.0.push(i));
+    self.instances.1 = true;
   }
 }
