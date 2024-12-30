@@ -22,6 +22,7 @@ checksum = "c71b1793ee61086797f5c80b6efa2b8ffa6d5dd703f118545808a7f2e27f7046"
 name = "action-edit-system-game"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "bytemuck",
  "csv",
  "egui",

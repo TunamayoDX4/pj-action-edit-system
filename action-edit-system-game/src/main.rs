@@ -119,7 +119,7 @@ impl winit::application::ApplicationHandler for App {
           mw.square.instance_register(
             [renderer::render2d::square::Instance {
               position: [0., 0.].into(),
-              size: [128., 64.].into(),
+              size: [64., 64.].into(),
               rot: 90. * (std::f32::consts::PI / 180.),
               uv: [[0., 0.], [1., 1.]],
             }]

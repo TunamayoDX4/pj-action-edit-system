@@ -55,21 +55,6 @@ fn vs_main(
     vec4<f32>(0., 0., 0., 1.), 
   ) * out.clip_position;
   out.clip_position = camera.view_proj * out.clip_position;
-  //out.clip_position = camera.view_proj * out.clip_position;
-  /*pos = vec4<f32>(
-    instance.size.x * model.position.x, 
-    instance.size.y * model.position.y, 
-    1., 
-    1., 
-  );
-  pos = vec4<f32>(
-    (pos.x * instance.rot.x - pos.y * instance.rot.y) + instance.pos.x, 
-    (pos.x * instance.rot.y + pos.y * instance.rot.x) + instance.pos.y, 
-    1., 
-    1., 
-  );
-  out.clip_position = vec4<f32>(pos, 1.0);
-  */
   return out;
 }
 

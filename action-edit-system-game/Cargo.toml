@@ -53,3 +53,4 @@ csv = "1"
 egui = "0.30"
 egui-winit = "0.30"
 egui-wgpu = { version = "0.30", features = ["winit"] }
+ab_glyph = "0.2"
