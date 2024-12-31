@@ -1,46 +1,30 @@
-use std::sync::Arc;
-
+mod app_sys;
 type StdError = Box<dyn std::error::Error>;
 
-pub struct AppInterface {
-  window: Option<Arc<winit::window::Window>>, 
-}
-impl AppInterface {
-  pub fn new() -> Result<Self, StdError> {
-    Ok(Self { window: None })
-  }
-}
-impl winit::application::ApplicationHandler for AppInterface {
-  fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-    let window_attr = winit::window::WindowAttributes::default()
-      .with_active(true)
-      .with_resizable(false)
-      .with_enabled_buttons(winit::window::WindowButtons::CLOSE)
-      .with_fullscreen(None)
-      .with_inner_size(winit::dpi::PhysicalSize::new(1280, 720));
-    self.window = Some({
-      match event_loop.create_window(window_attr) {
-        Ok(window) => std::sync::Arc::new(window), 
-        Err(e) => {
-          log::error!("Application window create failure.");
-          log::error!("{e}")
-          panic!()
-        }
-      }
-    });
-    todo!()
-  }
-
-  fn window_event(
-    &mut self,
-    event_loop: &winit::event_loop::ActiveEventLoop,
-    window_id: winit::window::WindowId,
-    event: winit::event::WindowEvent,
-  ) {
-    todo!()
-  }
-}
-
 fn main() -> Result<(), StdError> {
+  // Initializing env_logger
+  env_logger::Builder::from_default_env()
+    .target(env_logger::Target::Stdout)
+    .filter_level(if cfg!(debug_assertions) {
+      log::LevelFilter::Debug
+    } else {
+      log::LevelFilter::Info
+    })
+    .init();
+
+  // Preparing application
+  log::info!("Preparing application.");
+  let mut app = app_sys::AppInterface::new()?;
+  let event_loop =
+    winit::event_loop::EventLoopBuilder::default().build().map(|evl| {
+      evl.set_control_flow(winit::event_loop::ControlFlow::Poll);
+      evl
+    })?;
+
+  // Starting application
+  log::info!("Run application.");
+  event_loop.run_app(&mut app)?;
+  log::info!("Quit the application.");
+
   Ok(())
 }
