@@ -14,7 +14,7 @@ fn main() -> Result<(), StdError> {
 
   // Preparing application
   log::info!("Preparing application.");
-  let mut app = app_sys::AppInterface::new()?;
+  let mut app = app_sys::AppFrontend::new()?;
   let event_loop =
     winit::event_loop::EventLoopBuilder::default().build().map(|evl| {
       evl.set_control_flow(winit::event_loop::ControlFlow::Poll);

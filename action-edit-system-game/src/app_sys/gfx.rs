@@ -6,7 +6,10 @@ use wgpu::{
   SurfaceConfiguration, SurfaceError,
 };
 use winit::{dpi::PhysicalSize, window::Window};
-pub mod renderer;
+pub mod rdr_2d;
+pub mod rdr_egui;
+pub mod render_chain;
+pub mod util;
 
 /// WGPU config wrapper
 pub struct AppGfxConfig {
@@ -30,7 +33,7 @@ pub struct AppGfxService {
   device: Device,
   queue: Queue,
   config: RwLock<AppGfxConfig>,
-  chain_base: renderer::RenderChainBase,
+  chain_base: render_chain::RenderChainBase,
 }
 impl AppGfxService {
   pub async fn new(window: &Arc<Window>) -> Result<Self, StdError> {
@@ -77,7 +80,7 @@ impl AppGfxService {
         .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb),
       width: wsize.width,
       height: wsize.height,
-      present_mode: wgpu::PresentMode::AutoVsync,
+      present_mode: wgpu::PresentMode::Immediate,
       desired_maximum_frame_latency: 2,
       alpha_mode: capabilities
         .alpha_modes
@@ -94,7 +97,7 @@ impl AppGfxService {
       device,
       queue,
       config,
-      chain_base: renderer::RenderChainBase::new(),
+      chain_base: render_chain::RenderChainBase::new(),
     })
   }
 
@@ -110,10 +113,12 @@ impl AppGfxService {
     }
   }
 
-  pub fn rendering(&self) -> Result<renderer::RenderChain, SurfaceError> {
+  pub fn rendering(
+    &self,
+  ) -> Result<render_chain::RenderChain, SurfaceError> {
     let texture = self.surface.get_current_texture()?;
     let view =
       texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-    Ok(renderer::RenderChain::new(self, texture, view))
+    Ok(render_chain::RenderChain::new(self, texture, view))
   }
 }

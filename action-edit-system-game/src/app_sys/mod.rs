@@ -2,14 +2,18 @@
 //! アプリケーションのシステムとの結合部分の実装
 
 use crate::StdError;
-use std::sync::Arc;
+use egui::RichText;
+use std::{
+  io::Read,
+  sync::{atomic::AtomicBool, Arc},
+};
 use winit::event::WindowEvent;
 
 pub mod gfx;
-pub use gfx::renderer::{RenderChainCommand, Renderer};
+pub use gfx::render_chain::{RenderChainCommand, Renderer};
 
 pub struct TestRender;
-impl gfx::renderer::Renderer<()> for TestRender {
+impl gfx::render_chain::Renderer<()> for TestRender {
   fn request_encoder_count(&self) -> usize {
     1usize
   }
@@ -22,7 +26,7 @@ impl gfx::renderer::Renderer<()> for TestRender {
     _queue: &wgpu::Queue,
     encoder: &mut [wgpu::CommandEncoder],
     _param: (),
-  ) -> Result<gfx::renderer::RenderChainCommand, StdError> {
+  ) -> Result<RenderChainCommand, StdError> {
     encoder[0].begin_render_pass(&wgpu::RenderPassDescriptor {
       label: Some("Test renderer"),
       color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -42,7 +46,7 @@ impl gfx::renderer::Renderer<()> for TestRender {
       timestamp_writes: None,
       occlusion_query_set: None,
     });
-    Ok(gfx::renderer::RenderChainCommand::AllowContinue)
+    Ok(RenderChainCommand::AllowContinue)
   }
 }
 
@@ -50,26 +54,57 @@ impl gfx::renderer::Renderer<()> for TestRender {
 pub struct AppGuiService {
   window: Arc<winit::window::Window>,
   gfx: Arc<gfx::AppGfxService>,
+  egui: gfx::rdr_egui::EguiRenderer,
 }
 impl AppGuiService {
   pub fn new(window: winit::window::Window) -> Result<Self, StdError> {
     let window = Arc::new(window);
     let gfx =
       Arc::new(pollster::block_on(gfx::AppGfxService::new(&window))?);
+    let egui =
+      gfx::rdr_egui::EguiRenderer::new(&gfx, &window, None, 1, false, 1.0);
+    egui.replace_font("ipa_exg", {
+      let mut buffer = Vec::new();
+      let mut rdr = std::io::BufReader::new(std::fs::File::open(
+        "./IPAexfont00401/ipaexg.ttf",
+      )?);
+      rdr.read_to_end(&mut buffer)?;
+      buffer
+    });
 
-    Ok(Self { window, gfx })
+    Ok(Self { window, gfx, egui })
   }
 }
 
-pub struct AppInterface {
+pub struct AppFrontend {
   gui: Option<AppGuiService>,
+  lua: mlua::Lua,
+  lua_script_buffer: String,
+  catch_lua_error: Option<mlua::Error>,
+  program_terminate: Arc<AtomicBool>,
 }
-impl AppInterface {
+impl AppFrontend {
   pub fn new() -> Result<Self, StdError> {
-    Ok(Self { gui: None })
+    let program_terminate = Arc::new(AtomicBool::new(false));
+    Ok(Self {
+      gui: None,
+      lua: {
+        let lua = mlua::Lua::new();
+        let term_flag = program_terminate.clone();
+        let f = lua.create_function(move |_lua, _: ()| {
+          term_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+          Ok(())
+        })?;
+        lua.globals().set("exit", f)?;
+        lua
+      },
+      lua_script_buffer: String::new(),
+      catch_lua_error: None,
+      program_terminate,
+    })
   }
 }
-impl winit::application::ApplicationHandler for AppInterface {
+impl winit::application::ApplicationHandler for AppFrontend {
   fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
     let window_attr = winit::window::WindowAttributes::default()
       .with_active(true)
@@ -115,14 +150,58 @@ impl winit::application::ApplicationHandler for AppInterface {
     window_id: winit::window::WindowId,
     event: WindowEvent,
   ) {
+    if self.program_terminate.load(std::sync::atomic::Ordering::Relaxed) {
+      event_loop.exit()
+    }
     if let Some(gui) =
-      self.gui.as_ref().filter(|g| g.window.id() == window_id)
+      self.gui.as_mut().filter(|g| g.window.id() == window_id)
     {
+      let _ = gui.egui.event_input(&gui.window, &event);
       match event {
         WindowEvent::CloseRequested => event_loop.exit(),
         WindowEvent::RedrawRequested => {
           match gui.gfx.rendering() {
-            Ok(rc) => match rc.rendering(&mut TestRender, ()).finish() {
+            Ok(rc) => match rc
+              .rendering(&mut TestRender, ())
+              .rendering(
+                &mut gui.egui,
+                (&gui.window, |c| {
+                  egui::Window::new("egui window")
+                    .resizable(true)
+                    .vscroll(true)
+                    .hscroll(true)
+                    .default_open(false)
+                    .show(c, |ui| {
+                      ui.vertical(|ui| {
+                        ui.label("Input lua script!");
+                        ui.text_edit_multiline(
+                          &mut self.lua_script_buffer,
+                        );
+                        if ui.button("Execute").clicked() {
+                          match self
+                            .lua
+                            .load(&self.lua_script_buffer)
+                            .exec()
+                          {
+                            Ok(_) => self.catch_lua_error = None,
+                            Err(e) => {
+                              log::warn!("Lua script execute error: {e}");
+                              self.catch_lua_error = Some(e);
+                            }
+                          }
+                        }
+                        if let Some(e) = self.catch_lua_error.as_ref() {
+                          ui.label(
+                            RichText::new(format!("{e}"))
+                              .color(egui::Rgba::from_rgb(255., 0., 0.)),
+                          );
+                        }
+                      })
+                    });
+                }),
+              )
+              .finish()
+            {
               Ok(_) => {}
               Err(e) => {
                 log::error!("Rendering error occured.");
