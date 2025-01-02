@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use hashbrown::HashMap;
 use parking_lot::RwLock;
 use wgpu::{
-  vertex_attr_array, BindGroup, Texture, VertexAttribute,
+  vertex_attr_array, BindGroup, BindGroupLayout, Buffer,
+  PipelineLayout, RenderPipeline, VertexAttribute,
   VertexBufferLayout,
 };
 
@@ -35,5 +35,11 @@ impl Instance {
 }
 
 pub struct SquareRenderer {
-  camera: Arc<RwLock<super::Camera2DWGPUObject>>,
+  camera: Arc<RwLock<super::camera::Camera2DWGPUObject>>,
+  vertices: Buffer,
+  indices: Buffer,
+  pipeline_layout: PipelineLayout,
+  pipeline: RenderPipeline,
+  diffuse_bindgroup_layout: BindGroupLayout,
+  diffuse_bindgroup: BindGroup,
 }
